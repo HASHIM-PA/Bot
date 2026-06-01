@@ -1,14 +1,9 @@
-import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../utils/errorHandler.js';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Parses a delay string like "10s", "5m", "2h" into milliseconds.
- * Returns 0 if no delay given, or throws TitanBotError for bad format.
- */
 function parseDelay(delayInput) {
   if (!delayInput) return 0;
 
@@ -24,49 +19,50 @@ function parseDelay(delayInput) {
 
   const value = parseInt(match[1], 10);
   const unit = match[2];
-
   if (unit === 's') return value * 1000;
   if (unit === 'm') return value * 60 * 1000;
   if (unit === 'h') return value * 60 * 60 * 1000;
-
   return 0;
 }
-
 
 // ─── Command ─────────────────────────────────────────────────────────────────
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('announce')
-    .setDescription('Send an announcement to a channel with optional styling & delay')
+    .setName('send')
+    .setDescription('Send a message to a channel with optional role mentions, image, and delay')
     .addChannelOption(option =>
       option
         .setName('channel')
-        .setDescription('The channel to send the announcement to')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('title')
-        .setDescription('The announcement title')
+        .setDescription('The channel to send the message to')
         .setRequired(true)
     )
     .addStringOption(option =>
       option
         .setName('message')
-        .setDescription('The announcement content')
+        .setDescription('The text message to send')
         .setRequired(true)
     )
-    .addStringOption(option =>
-      option
-        .setName('color')
-        .setDescription('Embed color (hex code without #, e.g. FF0000 for red)')
-        .setRequired(false)
+    // Up to 5 role mentions
+    .addRoleOption(option =>
+      option.setName('role1').setDescription('Role to mention').setRequired(false)
+    )
+    .addRoleOption(option =>
+      option.setName('role2').setDescription('Role to mention').setRequired(false)
+    )
+    .addRoleOption(option =>
+      option.setName('role3').setDescription('Role to mention').setRequired(false)
+    )
+    .addRoleOption(option =>
+      option.setName('role4').setDescription('Role to mention').setRequired(false)
+    )
+    .addRoleOption(option =>
+      option.setName('role5').setDescription('Role to mention').setRequired(false)
     )
     .addAttachmentOption(option =>
       option
         .setName('image')
-        .setDescription('Optional image to attach to the announcement')
+        .setDescription('Optional image to attach')
         .setRequired(false)
     )
     .addStringOption(option =>
@@ -75,43 +71,23 @@ export default {
         .setDescription('Delay before sending — e.g. 10s, 5m, 2h (leave empty to send now)')
         .setRequired(false)
     )
-    .addBooleanOption(option =>
-      option
-        .setName('ping')
-        .setDescription('Ping @everyone with the announcement')
-        .setRequired(false)
-    )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
 
   async execute(interaction) {
     const targetChannel = interaction.options.getChannel('channel');
-    const title         = interaction.options.getString('title');
     const messageText   = interaction.options.getString('message');
-    const colorInput    = interaction.options.getString('color');
     const image         = interaction.options.getAttachment('image');
     const delayInput    = interaction.options.getString('delay');
-    const shouldPing    = interaction.options.getBoolean('ping') ?? false;
+
+    // Collect all provided roles
+    const roles = ['role1', 'role2', 'role3', 'role4', 'role5']
+      .map(key => interaction.options.getRole(key))
+      .filter(Boolean);
 
     try {
-      // ── Validate delay ──────────────────────────────────────────────────
       const delayMs = parseDelay(delayInput);
 
-      // ── Validate color hex ──────────────────────────────────────────────
-      let embedColor = null;
-      if (colorInput) {
-        if (!/^[0-9A-Fa-f]{6}$/.test(colorInput)) {
-          throw new TitanBotError(
-            `Invalid color format: "${colorInput}"`,
-            ErrorTypes.VALIDATION,
-            '⚠️ Invalid color format. Use a hex code without # (e.g., FF0000).',
-            { colorInput }
-          );
-        }
-        embedColor = colorInput;
-      }
-
-      // ── Check bot permissions in target channel ─────────────────────────
+      // Check bot permissions
       const botMember = interaction.guild.members.me;
       if (!targetChannel.permissionsFor(botMember).has(PermissionFlagsBits.SendMessages)) {
         throw new TitanBotError(
@@ -122,51 +98,35 @@ export default {
         );
       }
 
-      // ── Build the announcement embed ────────────────────────────────────
-      const sendAnnouncement = async () => {
-        const embed = new EmbedBuilder()
-          .setTitle(title)
-          .setDescription(messageText)
-          .setTimestamp();
+      const sendMessage = async () => {
+        // Build role mentions string, e.g. "@ADMINS @SELLER @MEMBERS"
+        const roleMentions = roles.map(r => r.toString()).join(' ');
 
-        if (embedColor) {
-          embed.setColor(parseInt(embedColor, 16));
-        } else {
-          embed.setColor(0x5865F2); // Discord blue as default
-        }
+        // Final message: text first, then role mentions on a new line (like your example)
+        const fullContent = roleMentions
+          ? `${messageText}\n${roleMentions}`
+          : messageText;
 
-        if (image) {
-          embed.setImage(image.url);
-        }
-
-        const payload = {
-          embeds: [embed],
-          content: shouldPing ? '@everyone' : ''
-        };
-
-        // Remove empty content field
-        if (!payload.content) delete payload.content;
+        const payload = { content: fullContent };
+        if (image) payload.files = [image.url];
 
         await targetChannel.send(payload);
 
-        logger.info('Announce command delivered announcement', {
+        logger.info('Send command delivered message', {
           guildId:   interaction.guildId,
           userId:    interaction.user.id,
           channelId: targetChannel.id,
-          title,
+          roles:     roles.map(r => r.name),
           hasImage:  !!image,
-          hasColor:  !!embedColor,
           delayed:   delayMs > 0,
-          pinged:    shouldPing,
           delay:     delayInput ?? 'none'
         });
       };
 
-      // ── Send now or schedule ────────────────────────────────────────────
       if (delayMs > 0) {
-        setTimeout(sendAnnouncement, delayMs);
+        setTimeout(sendMessage, delayMs);
 
-        logger.info('Announce command scheduled', {
+        logger.info('Send command scheduled', {
           guildId:   interaction.guildId,
           userId:    interaction.user.id,
           channelId: targetChannel.id,
@@ -174,21 +134,19 @@ export default {
         });
 
         await interaction.reply({
-          content: `⏳ Announcement scheduled to ${targetChannel} in **${delayInput}**.`,
+          content: `⏳ Message scheduled to ${targetChannel} in **${delayInput}**.`,
           ephemeral: true
         });
-
       } else {
-        await sendAnnouncement();
-
+        await sendMessage();
         await interaction.reply({
-          content: `✅ Announcement sent to ${targetChannel}!`,
+          content: `✅ Message sent to ${targetChannel}!`,
           ephemeral: true
         });
       }
 
     } catch (error) {
-      logger.error('Error in /announce command', {
+      logger.error('Error in /send command', {
         error:     error.message,
         stack:     error.stack,
         guildId:   interaction.guildId,
@@ -196,7 +154,6 @@ export default {
         channelId: targetChannel?.id
       });
 
-      // Show user-friendly message from TitanBotError, or a generic fallback
       const userMessage = error.userMessage ?? '❌ Something went wrong. Please try again.';
 
       if (interaction.replied || interaction.deferred) {
