@@ -9,6 +9,7 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createInteractionTraceContext, runWithTraceContext } from '../utils/traceContext.js';
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
+import createChannelCmd from '../commands/Channal/createchannel.js';
 
 function withTraceContext(context = {}, traceContext = {}) {
   return {
@@ -105,7 +106,6 @@ export default {
               const roles = await getApplicationRoles(client, interaction.guildId);
               const roleName = interaction.options.getString('application', false);
               
-              // Filter: only show enabled applications
               const filtered = roles.filter(role =>
                 role.enabled !== false && 
                 role.name.toLowerCase().startsWith(roleName?.toLowerCase() || '')
@@ -131,7 +131,6 @@ export default {
               const roles = await getApplicationRoles(client, interaction.guildId);
               const appName = interaction.options.getString('application', false);
               
-              // Show all applications (enabled and disabled), but mark disabled ones
               const filtered = roles.filter(role =>
                 role.name.toLowerCase().startsWith(appName?.toLowerCase() || '')
               );
@@ -163,12 +162,9 @@ export default {
                 return;
               }
               
-              // Filter out panels whose messages no longer exist
               const validPanels = [];
               for (const panel of panels) {
-                if (!panel.messageId || !panel.channelId) {
-                  continue;
-                }
+                if (!panel.messageId || !panel.channelId) continue;
                 
                 const channel = guild.channels.cache.get(panel.channelId);
                 if (!channel) {
@@ -223,6 +219,20 @@ export default {
             }
           }
         } else if (interaction.isButton()) {
+          // ── createchannel buttons ─────────────────────────────────────────
+          if (interaction.customId.startsWith('cc_')) {
+            try {
+              await createChannelCmd.handleComponent(interaction);
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'button',
+                customId: interaction.customId,
+                handler: 'createchannel'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
           if (interaction.customId.startsWith('shared_todo_')) {
             const parts = interaction.customId.split('_');
             const buttonType = parts.slice(0, 3).join('_');
@@ -276,14 +286,25 @@ export default {
             }, interactionTraceContext));
           }
         } else if (interaction.isStringSelectMenu()) {
+          // ── createchannel select menus ────────────────────────────────────
+          if (interaction.customId.startsWith('cc_')) {
+            try {
+              await createChannelCmd.handleComponent(interaction);
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'select_menu',
+                customId: interaction.customId,
+                handler: 'createchannel'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
           const [customId, ...args] = interaction.customId.split(':');
           const selectMenu = client.selectMenus.get(customId);
 
           if (!selectMenu) {
             if (!interaction.customId.includes(':')) {
-              // No registered handler and no ':' delimiter — this is an inline-collected
-              // select menu (e.g. ticket_config_<guildId>, jointocreate_config_<id>).
-              // Return silently so the existing MessageComponentCollector handles it.
               return;
             }
 
@@ -304,6 +325,20 @@ export default {
             }, interactionTraceContext));
           }
         } else if (interaction.isModalSubmit()) {
+          // ── createchannel modals ──────────────────────────────────────────
+          if (interaction.customId.startsWith('cc_modal_')) {
+            try {
+              await createChannelCmd.handleModal(interaction);
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'modal',
+                customId: interaction.customId,
+                handler: 'createchannel'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
           if (interaction.customId.startsWith('app_modal_')) {
             try {
               await handleApplicationModal(interaction);
@@ -343,8 +378,6 @@ export default {
 
           if (!modal) {
             if (!interaction.customId.includes(':')) {
-              // No registered handler and no ':' delimiter — this is an inline-awaited
-              // modal (e.g. via awaitModalSubmit). Return silently so the caller handles it.
               return;
             }
 
