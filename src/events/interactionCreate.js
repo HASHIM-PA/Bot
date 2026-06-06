@@ -10,6 +10,7 @@ import { createInteractionTraceContext, runWithTraceContext } from '../utils/tra
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
 import createChannelCmd from '../commands/Channal/createchannel.js';
+import repostCmd from '../commands/Channal/repost.js';
 
 function withTraceContext(context = {}, traceContext = {}) {
   return {
@@ -233,6 +234,24 @@ export default {
             return;
           }
 
+          // ── repost buttons ────────────────────────────────────────────────
+          if (interaction.customId.startsWith('rp_')) {
+            try {
+              if (interaction.customId === 'rp_confirm') {
+                await repostCmd.handleConfirm(interaction);
+              } else {
+                await repostCmd.handleComponent(interaction);
+              }
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'button',
+                customId: interaction.customId,
+                handler: 'repost'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
           if (interaction.customId.startsWith('shared_todo_')) {
             const parts = interaction.customId.split('_');
             const buttonType = parts.slice(0, 3).join('_');
@@ -300,6 +319,20 @@ export default {
             return;
           }
 
+          // ── repost select menus ───────────────────────────────────────────
+          if (interaction.customId.startsWith('rp_')) {
+            try {
+              await repostCmd.handleComponent(interaction);
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'select_menu',
+                customId: interaction.customId,
+                handler: 'repost'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
           const [customId, ...args] = interaction.customId.split(':');
           const selectMenu = client.selectMenus.get(customId);
 
@@ -334,6 +367,20 @@ export default {
                 type: 'modal',
                 customId: interaction.customId,
                 handler: 'createchannel'
+              }, interactionTraceContext));
+            }
+            return;
+          }
+
+          // ── repost modals ─────────────────────────────────────────────────
+          if (interaction.customId.startsWith('rp_modal_')) {
+            try {
+              await repostCmd.handleModal(interaction);
+            } catch (error) {
+              await handleInteractionError(interaction, error, withTraceContext({
+                type: 'modal',
+                customId: interaction.customId,
+                handler: 'repost'
               }, interactionTraceContext));
             }
             return;
